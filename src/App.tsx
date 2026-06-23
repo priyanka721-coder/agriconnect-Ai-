@@ -4,6 +4,7 @@ import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Importing Tab Components
+import IntroAuthScreen from './components/IntroAuthScreen';
 import AuthModal from './components/AuthModal';
 import VoiceAssistant from './components/VoiceAssistant';
 import WeatherDashboard from './components/WeatherDashboard';
@@ -25,13 +26,33 @@ import {
   Sprout, ShieldAlert, Sparkles, CloudRain, ShoppingBag, 
   Calendar, Landmark, BookOpen, TrendingUp, Phone, 
   Home, Menu, X, CheckCircle, Award, Users, ArrowRight, Eye,
-  Bell
+  Bell, LogOut
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
-  const [language, setLanguage] = useState<SupportedLanguage>('en');
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  
+  // Initial synchronous state hydration to prevent theme flickers
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    try {
+      const savedLocal = localStorage.getItem('agri_farmer_profile');
+      if (savedLocal) return JSON.parse(savedLocal);
+      
+      const savedSession = sessionStorage.getItem('agri_farmer_profile');
+      if (savedSession) return JSON.parse(savedSession);
+    } catch (e) {
+      console.error(e);
+    }
+    return null;
+  });
+
+  const [language, setLanguage] = useState<SupportedLanguage>(() => {
+    if (profile && profile.preferredLanguage) {
+      return profile.preferredLanguage;
+    }
+    return 'en';
+  });
+
   const [alertCount, setAlertCount] = useState(2);
   
   // Accessibility state
@@ -47,6 +68,24 @@ export default function App() {
   }, [profile]);
 
   const activeTrans = translations[language];
+
+  // Full Screen gating to login/register if profile is unauthenticated
+  if (!profile) {
+    return (
+      <IntroAuthScreen 
+        onAuthSuccess={(newProfile, remember) => {
+          setProfile(newProfile);
+          if (remember) {
+            localStorage.setItem('agri_farmer_profile', JSON.stringify(newProfile));
+          } else {
+            sessionStorage.setItem('agri_farmer_profile', JSON.stringify(newProfile));
+          }
+        }} 
+        language={language}
+        onLanguageChange={(lang) => setLanguage(lang)}
+      />
+    );
+  }
 
   // Map tabs to translation strings
   const getTabLabel = (tab: string) => {
@@ -391,6 +430,21 @@ export default function App() {
             onProfileUpdate={(p) => setProfile(p)}
             currentProfile={profile}
           />
+
+          {/* Secure Logout capability */}
+          <button
+            id="gateway-logout-btn"
+            onClick={() => {
+              setProfile(null);
+              localStorage.removeItem('agri_farmer_profile');
+              sessionStorage.removeItem('agri_farmer_profile');
+            }}
+            className="flex items-center gap-1.5 py-1 px-3.5 bg-red-50 hover:bg-red-100/80 text-red-700 hover:text-red-800 border border-red-200/50 rounded-full cursor-pointer text-[10px] font-extrabold uppercase tracking-wider transition-all shadow-xs"
+            title="Sign Out Securely"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{language === 'te' ? 'నిష్క్రమించు' : language === 'hi' ? 'लॉगआउट' : 'Sign Out'}</span>
+          </button>
         </div>
 
       </div>
@@ -561,7 +615,22 @@ export default function App() {
                   </button>
                 </div>
                 
-                <p className="text-[10px] text-stone-400 font-semibold text-center italic mt-1">
+                {/* Secure Log Out button */}
+                <button
+                  id="mobile-drawer-logout-btn"
+                  onClick={() => {
+                    setProfile(null);
+                    localStorage.removeItem('agri_farmer_profile');
+                    sessionStorage.removeItem('agri_farmer_profile');
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full mt-2 py-3 px-4 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl cursor-pointer text-xs font-black text-red-700 hover:text-red-800 flex items-center justify-center gap-2 transition-all shadow-xs"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>{language === 'en' ? 'Secure Sign Out' : language === 'te' ? 'రైతు నిష్క్రమించు' : 'सुरक्षित लॉगआउट'}</span>
+                </button>
+                
+                <p className="text-[10px] text-stone-400 font-semibold text-center italic mt-2">
                   AgriConnect AI India • 2026
                 </p>
               </div>

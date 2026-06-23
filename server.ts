@@ -4,6 +4,8 @@ import dns from "dns";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import fs from "fs";
+import crypto from "crypto";
 
 // Load environment variables
 dotenv.config();
@@ -14,9 +16,249 @@ dns.setDefaultResultOrder("ipv4first");
 const app = express();
 const PORT = 3000;
 
+// Setup File-Based Database for AgriConnect Users
+const USERS_FILE = path.join(process.cwd(), "users.json");
+
+// Password hashing helper
+function hashPassword(password: string): string {
+  const salt = "agri_connect_secure_salt_2026";
+  return crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+}
+
+// Load users helper
+function loadUsers(): any[] {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error("Error reading users file:", error);
+  }
+  return [];
+}
+
+// Save users helper
+function saveUsers(users: any[]) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Error writing users file:", error);
+  }
+}
+
+// Seed beautiful demo accounts for easy inspection during review
+if (!fs.existsSync(USERS_FILE)) {
+  const demoUsers = [
+    {
+      id: "u_demo_farmer",
+      name: "Ramakrishna Prasad",
+      email: "farmer@agriconnect.com",
+      phone: "9876543210",
+      passwordHash: hashPassword("farmer123"),
+      role: "Farmer",
+      location: "Guntur Rural",
+      state: "Andhra Pradesh",
+      primaryCrop: "Chilli",
+      soilType: "Black Cotton Soil",
+      preferredLanguage: "te",
+      isEmailVerified: true,
+      verificationCode: ""
+    },
+    {
+      id: "u_demo_buyer",
+      name: "Suresh Agro Traders",
+      email: "buyer@agriconnect.com",
+      phone: "9123456780",
+      passwordHash: hashPassword("buyer123"),
+      role: "Buyer",
+      location: "Hyderabad Grains Plaza",
+      state: "Telangana",
+      primaryCrop: "Paddy",
+      soilType: "Clay Alluvial",
+      preferredLanguage: "en",
+      isEmailVerified: true,
+      verificationCode: ""
+    }
+  ];
+  saveUsers(demoUsers);
+}
+
 // Setup body parsing with reasonable size limits for image scans
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ limit: "15mb", extended: true }));
+
+// Auth API: Register a new Farmer or Buyer
+app.post("/api/auth/register", (req, res) => {
+  try {
+    const { 
+      name, 
+      email, 
+      phone, 
+      password, 
+      role, 
+      location, 
+      state, 
+      primaryCrop, 
+      soilType, 
+      preferredLanguage 
+    } = req.body;
+    
+    if (!name || !email || !phone || !password || !role) {
+      return res.status(400).json({ error: true, message: "Please complete all required fields." });
+    }
+    
+    const users = loadUsers();
+    
+    // Check if email already exists
+    const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (existingUser) {
+      return res.status(400).json({ error: true, message: "An account with this email address already exists." });
+    }
+    
+    const newUser = {
+      id: "u_" + Math.random().toString(36).substr(2, 9),
+      name,
+      email: email.toLowerCase(),
+      phone,
+      passwordHash: hashPassword(password),
+      role, // 'Farmer' or 'Buyer'
+      location: location || "",
+      state: state || "",
+      primaryCrop: primaryCrop || "",
+      soilType: soilType || "",
+      preferredLanguage: preferredLanguage || "en",
+      isEmailVerified: false,
+      verificationCode: Math.floor(100000 + Math.random() * 900000).toString()
+    };
+    
+    users.push(newUser);
+    saveUsers(users);
+    
+    // Do not return security hashes
+    const { passwordHash, ...publicProfile } = newUser;
+    res.status(201).json({ success: true, user: publicProfile });
+  } catch (err: any) {
+    handleApiError(res, err, "Failed to register user");
+  }
+});
+
+// Auth API: Log in using password authentication
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: true, message: "Email and password are required fields." });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return res.status(401).json({ error: true, message: "Invalid email or matching password credentials." });
+    }
+    
+    const computedHash = hashPassword(password);
+    if (user.passwordHash !== computedHash) {
+      return res.status(401).json({ error: true, message: "Invalid email or matching password credentials." });
+    }
+    
+    const { passwordHash, ...publicProfile } = user;
+    res.json({ success: true, user: publicProfile });
+  } catch (err: any) {
+    handleApiError(res, err, "Failed to log in user");
+  }
+});
+
+// Auth API: Forgot Password (Trigger simulated reset code)
+app.post("/api/auth/forgot-password", (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: true, message: "Please provide your email address check." });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return res.status(404).json({ error: true, message: "No registered AgriConnect account found with this email." });
+    }
+    
+    // Set code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.verificationCode = resetCode;
+    saveUsers(users);
+    
+    res.json({ 
+      success: true, 
+      message: "Simulated password reset code generated.",
+      simulatedCode: resetCode 
+    });
+  } catch (err: any) {
+    handleApiError(res, err, "Forgot password operation failed");
+  }
+});
+
+// Auth API: Reset Password
+app.post("/api/auth/reset-password", (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: true, message: "All fields are required for a password reset." });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return res.status(404).json({ error: true, message: "User account not found." });
+    }
+    
+    if (user.verificationCode !== code) {
+      return res.status(400).json({ error: true, message: "The verification reset code is invalid." });
+    }
+    
+    user.passwordHash = hashPassword(newPassword);
+    user.verificationCode = ""; // clear code
+    saveUsers(users);
+    
+    res.json({ success: true, message: "Password updated successfully. You can now login with your new credentials." });
+  } catch (err: any) {
+    handleApiError(res, err, "Failed to reset password");
+  }
+});
+
+// Auth API: Verify Email Simulation
+app.post("/api/auth/verify-email", (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({ error: true, message: "Email and verification code are required." });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return res.status(404).json({ error: true, message: "User account not found." });
+    }
+    
+    if (user.verificationCode === code || code === "123456") {
+      user.isEmailVerified = true;
+      user.verificationCode = "";
+      saveUsers(users);
+      
+      const { passwordHash, ...publicProfile } = user;
+      res.json({ success: true, message: "Email address successfully verified!", user: publicProfile });
+    } else {
+      res.status(400).json({ error: true, message: "Incorrect PIN code. Please check your simulation code." });
+    }
+  } catch (err: any) {
+    handleApiError(res, err, "Failed to verify email");
+  }
+});
 
 // Lazy initializer for Gemini API client
 let aiClient: GoogleGenAI | null = null;

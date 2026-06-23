@@ -2,6 +2,8 @@ export interface UserProfile {
   id: string;
   name: string;
   phone: string;
+  email: string;
+  role: 'Farmer' | 'Buyer';
   location: string;
   state: string;
   primaryCrop?: string;
