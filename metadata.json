@@ -1,0 +1,6 @@
+{
+  "name": "AgriConnect AI",
+  "description": "Smart farming platform designed to help farmers increase productivity, manage crops, detect diseases, access market trends, and receive AI-guided multi-lingual assistance.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
